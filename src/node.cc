@@ -177,6 +177,11 @@ MaybeLocal<Value> ExecuteBootstrapper(Environment* env,
                                       std::vector<Local<String>>* parameters,
                                       std::vector<Local<Value>>* arguments) {
   EscapableHandleScope scope(env->isolate());
+
+  /**
+   * @[ar-1]: 查找native模块，也就是node自带的JS模块
+   *  id 是字符串，比如 "internal/bootstrap/loaders"，通过它找到js模块并编译
+   */  
   MaybeLocal<Function> maybe_fn =
       NativeModuleEnv::LookupAndCompile(env->context(), id, parameters, env);
 
@@ -301,12 +306,19 @@ void Environment::InitializeDiagnostics() {
 MaybeLocal<Value> Environment::BootstrapInternalLoaders() {
   EscapableHandleScope scope(isolate_);
 
+/**
+ * @[ar-1]: 在 lib\internal\bootstrap\loaders.js 里有调用 getInternalBinding，但找不到其定义。
+ *    其实其定义就在这里，绑定的是 binding::GetInternalBinding
+ */  
+
   // Create binding loaders
   std::vector<Local<String>> loaders_params = {
-      process_string(),
-      FIXED_ONE_BYTE_STRING(isolate_, "getLinkedBinding"),
-      FIXED_ONE_BYTE_STRING(isolate_, "getInternalBinding"),
-      primordials_string()};
+      process_string(),                                       // process
+      FIXED_ONE_BYTE_STRING(isolate_, "getLinkedBinding"),    // getLinkedBinding
+      FIXED_ONE_BYTE_STRING(isolate_, "getInternalBinding"),  // getInternalBinding
+      primordials_string()};                                  // primordials
+
+
   std::vector<Local<Value>> loaders_args = {
       process_object(),
       NewFunctionTemplate(binding::GetLinkedBinding)
@@ -317,6 +329,17 @@ MaybeLocal<Value> Environment::BootstrapInternalLoaders() {
           .ToLocalChecked(),
       primordials()};
 
+  /**
+   * @[ar-1]: 这是 internal/bootstrap/loaders 的exports
+   * const loaderExports = {
+   *    internalBinding, // 找内建C++模块的能力
+   *    NativeModule,
+   *    require: nativeModuleRequire // 找native js的能力
+   *  };
+   *   
+   *  执行此 loader 还有另外两个作用就是给 process.binding 和 process._linkedBinding 赋值
+   */  
+
   // Bootstrap internal loaders
   Local<Value> loader_exports;
   if (!ExecuteBootstrapper(
@@ -326,11 +349,23 @@ MaybeLocal<Value> Environment::BootstrapInternalLoaders() {
   }
   CHECK(loader_exports->IsObject());
   Local<Object> loader_exports_obj = loader_exports.As<Object>();
+
+  // 获取 internalBinding
   Local<Value> internal_binding_loader =
       loader_exports_obj->Get(context(), internal_binding_string())
           .ToLocalChecked();
   CHECK(internal_binding_loader->IsFunction());
+
+
+  /**
+   * @[ar-1]:  https://meixg.cn/2021/01/28/nodejs-internal-bunding/
+   *    set_internal_binding_loader 的作用是将 internal_binding_loader 设置在 Environment 上。
+   *    src\env.h 的 541 行定义了 set_internal_binding_loader 和 src\env-inl.h 的 1283 行
+   */  
   set_internal_binding_loader(internal_binding_loader.As<Function>());
+
+
+  // 获取 native module require
   Local<Value> require =
       loader_exports_obj->Get(context(), require_string()).ToLocalChecked();
   CHECK(require->IsFunction());
@@ -353,11 +388,16 @@ MaybeLocal<Value> Environment::BootstrapNode() {
       require_string(),
       internal_binding_string(),
       primordials_string()};
+
   std::vector<Local<Value>> node_args = {
       process_object(),
-      native_module_require(),
-      internal_binding_loader(),
+      native_module_require(),  // 应该是执行 BootstrapInternalLoaders 时放到 Environment 里面去的
+      internal_binding_loader(), // 同上
       primordials()};
+
+  /**
+   * @[ar-1]: 主要作用就是将 internal C++ 和 native JS 的功能放到 process 上去
+   */  
 
   MaybeLocal<Value> result = ExecuteBootstrapper(
       this, "internal/bootstrap/node", &node_params, &node_args);
@@ -367,6 +407,9 @@ MaybeLocal<Value> Environment::BootstrapNode() {
   }
 
   if (!no_browser_globals()) {
+    /**
+     * @[ar-1]: 给 global 赋值更多关于 browser 的功能，比如 setTimeout 和 setInterval
+     */    
     result = ExecuteBootstrapper(
         this, "internal/bootstrap/browser", &node_params, &node_args);
 
@@ -412,6 +455,10 @@ MaybeLocal<Value> Environment::RunBootstrapping() {
 
   CHECK(!has_run_bootstrapping_code());
 
+  /**
+   * @[ar-1]: lib\internal\bootstrap\loaders.js 集成了查找 native js 和 internal C++ 的能力，
+   *   这里去加载这个loaders.js,将其能力释放出来。
+   */  
   if (BootstrapInternalLoaders().IsEmpty()) {
     return MaybeLocal<Value>();
   }
@@ -892,6 +939,7 @@ int InitializeNodeWithArgs(std::vector<std::string>* argv,
   // Initialize node_start_time to get relative uptime.
   per_process::node_start_time = uv_hrtime();
 
+  // [ar-1] 初始化node时，注册内建C++模块
   // Register built-in modules
   binding::RegisterBuiltinModules();
 
@@ -1031,6 +1079,8 @@ InitializationResult InitializeOncePerProcess(
 
   // This needs to run *before* V8::Initialize().
   {
+    // [ar-1] 初始化node
+    //   1.register 了 内建C++ 模块
     result.exit_code = InitializeNodeWithArgs(
         &(result.args), &(result.exec_args), &errors, process_flags);
     for (const std::string& error : errors)
@@ -1154,6 +1204,8 @@ InitializationResult InitializeOncePerProcess(
 }
   per_process::v8_platform.Initialize(
       static_cast<int>(per_process::cli_options->v8_thread_pool_size));
+
+  // [ar-1] V8 初始化  
   if (init_flags & kInitializeV8) {
     V8::Initialize();
   }
@@ -1181,7 +1233,11 @@ void TearDownOncePerProcess() {
   per_process::v8_platform.Dispose();
 }
 
+
 int Start(int argc, char** argv) {
+  // [ar-1] 重要工作：
+  //   1. 初始化node, 包括加载内建C++模块，node_is_initialized = true
+  //   2. 初始化v8, v8_initialized = true
   InitializationResult result = InitializeOncePerProcess(argc, argv);
   if (result.early_return) {
     return result.exit_code;
@@ -1204,6 +1260,8 @@ int Start(int argc, char** argv) {
       native_module::NativeModuleEnv::RefreshCodeCache(
           snapshot_data->code_cache);
     }
+
+    // [ar-1] 创建拥有隔离（isolate）的主实例
     NodeMainInstance main_instance(snapshot_data,
                                    uv_default_loop(),
                                    per_process::v8_platform.Platform(),

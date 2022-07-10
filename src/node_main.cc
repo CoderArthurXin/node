@@ -31,6 +31,9 @@
 #define SKIP_CHECK_SIZE 1
 #define SKIP_CHECK_VALUE "1"
 
+/**
+ * @[ar-1]: main 入口函数
+ */
 int wmain(int argc, wchar_t* wargv[]) {
   // Windows Server 2012 (not R2) is supported until 10/10/2023, so we allow it
   // to run in the experimental support tier.

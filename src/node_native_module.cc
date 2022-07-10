@@ -23,6 +23,9 @@ NativeModuleLoader::NativeModuleLoader() : config_(GetConfig()) {
   LoadJavaScriptSource();
 }
 
+/**
+ * @[ar-1]: native module 采用单例
+ */
 NativeModuleLoader* NativeModuleLoader::GetInstance() {
   return &instance_;
 }

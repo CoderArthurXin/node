@@ -56,6 +56,7 @@ std::unique_ptr<NodeMainInstance> NodeMainInstance::Create(
       new NodeMainInstance(isolate, event_loop, platform, args, exec_args));
 }
 
+
 NodeMainInstance::NodeMainInstance(const SnapshotData* snapshot_data,
                                    uv_loop_t* event_loop,
                                    MultiIsolatePlatform* platform,
@@ -69,13 +70,14 @@ NodeMainInstance::NodeMainInstance(const SnapshotData* snapshot_data,
       isolate_data_(),
       isolate_params_(std::make_unique<Isolate::CreateParams>()),
       snapshot_data_(snapshot_data) {
+
   isolate_params_->array_buffer_allocator = array_buffer_allocator_.get();
   if (snapshot_data != nullptr) {
     SnapshotBuilder::InitializeIsolateParams(snapshot_data,
                                              isolate_params_.get());
   }
 
-  isolate_ = Isolate::Allocate();
+  isolate_ = Isolate::Allocate(); // 创建隔离isolate
   CHECK_NOT_NULL(isolate_);
   // Register the isolate on the platform before the isolate gets initialized,
   // so that the isolate can access the platform during initialization.
@@ -119,13 +121,18 @@ NodeMainInstance::~NodeMainInstance() {
 }
 
 int NodeMainInstance::Run() {
+
   Locker locker(isolate_);
   Isolate::Scope isolate_scope(isolate_);
   HandleScope handle_scope(isolate_);
 
+  /**
+   * @[ar-1]: CreateMainEnvironment call RunBootstrapping
+   */  
   int exit_code = 0;
   DeleteFnPtr<Environment, FreeEnvironment> env =
       CreateMainEnvironment(&exit_code);
+
   CHECK_NOT_NULL(env);
 
   Context::Scope context_scope(env->context());
@@ -216,6 +223,10 @@ NodeMainInstance::CreateMainEnvironment(int* exit_code) {
 #if HAVE_INSPECTOR
     env->InitializeInspector({});
 #endif
+    
+    /**
+     * @[ar-1]: RunBootstrapping
+     */    
     if (env->RunBootstrapping().IsEmpty()) {
       return nullptr;
     }

@@ -235,7 +235,12 @@ MaybeLocal<Function> NativeModuleEnv::LookupAndCompile(
     const char* id,
     std::vector<Local<String>>* parameters,
     Environment* optional_env) {
+
   NativeModuleLoader::Result result;
+
+  /**
+   * @[ar-1]: 通过id查native js模块，并编译
+   */  
   MaybeLocal<Function> maybe =
       NativeModuleLoader::GetInstance()->LookupAndCompile(
           context, id, parameters, &result);

@@ -253,12 +253,17 @@ static thread_local node_module* thread_local_modpending;
 bool node_is_initialized = false;
 
 extern "C" void node_module_register(void* m) {
+  // [ar-1] node_module 定义在 node.h
   struct node_module* mp = reinterpret_cast<struct node_module*>(m);
 
+  // [ar-1] NM_F_INTERNAL 指内建 C++ 模块
   if (mp->nm_flags & NM_F_INTERNAL) {
     mp->nm_link = modlist_internal;
     modlist_internal = mp;
   } else if (!node_is_initialized) {
+
+    // [ar-1] 通过定义，是让外部binding，可通过 process._linkedBinding 使用该 module
+
     // "Linked" modules are included as part of the node project.
     // Like builtins they are registered *before* node::Init runs.
     mp->nm_flags = NM_F_LINKED;
@@ -579,6 +584,9 @@ static Local<Object> InitModule(Environment* env,
   return exports;
 }
 
+/**
+ * @[ar-1]: 查找内建C++模块
+ */
 void GetInternalBinding(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
 
@@ -616,6 +624,9 @@ void GetInternalBinding(const FunctionCallbackInfo<Value>& args) {
   args.GetReturnValue().Set(exports);
 }
 
+/**
+ * @[ar-1]: 查找从外部传入的 Linked 模块
+ */
 void GetLinkedBinding(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
 
@@ -670,6 +681,9 @@ void GetLinkedBinding(const FunctionCallbackInfo<Value>& args) {
 
   args.GetReturnValue().Set(effective_exports);
 }
+
+// [ar-1] _register_modename 是在哪定义的？ NODE_MODULE_CONTEXT_AWARE_INTERNAL
+// 最终是通过上面的 node_module_register 注册
 
 // Call built-in modules' _register_<module name> function to
 // do module registration explicitly.
